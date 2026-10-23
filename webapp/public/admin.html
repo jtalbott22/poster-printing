@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<!-- BASE_PATH: '' for a normal root deployment; a path like '/static/posters'
+     when this portal shares a host with something else instead of owning
+     its own subdomain. Every fetch(), Socket.IO connection, and the handful
+     of literal links below are prefixed with it so they resolve back to
+     this app rather than to whatever else lives at the site root. -->
+<script>window.__BASE__='%%BASE_PATH%%';</script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Console — Poster printing</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root{--gold:#EEB111;--ink:#111827;--slate:#6B7280;--border:#E5E7EB;--surface:#F9FAFB;
+    --red:#DC2626;--amber:#D97706;--green:#16A34A;--blue:#2563EB;--shadow:0 1px 3px rgba(0,0,0,.08)}
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:Inter,system-ui,sans-serif;background:#F3F4F6;color:var(--ink);font-size:14px}
+  code,.mono{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12px}
+  .topbar{background:var(--ink);color:#fff;display:flex;align-items:center;justify-content:space-between;
+    padding:0 20px;height:52px;position:sticky;top:0;z-index:50}
+  .topbar a{color:#9CA3AF;text-decoration:none;font-size:13px;margin-left:16px}
+  .topbar a:hover{color:#fff}
+  .brand{font-weight:600;display:flex;gap:9px;align-items:center}
+  .badge{background:var(--gold);color:var(--ink);padding:3px 7px;border-radius:4px;font-size:11px;font-weight:700}
+  .wrap{max-width:1500px;margin:0 auto;padding:18px}
+  .strip{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px}
+  .stat{background:#fff;border:1px solid var(--border);border-radius:8px;padding:11px 15px;min-width:112px;
+    box-shadow:var(--shadow)}
+  .stat .n{font-size:22px;font-weight:700;line-height:1.1}
+  .stat .l{font-size:11px;color:var(--slate);text-transform:uppercase;letter-spacing:.05em;margin-top:2px}
+  .stat.hot .n{color:var(--amber)} .stat.bad .n{color:var(--red)}
+  .grid{display:grid;grid-template-columns:minmax(0,2.1fr) minmax(0,1fr);gap:16px}
+  @media (max-width:1150px){.grid{grid-template-columns:1fr}}
+  .panel{background:#fff;border:1px solid var(--border);border-radius:8px;box-shadow:var(--shadow);
+    margin-bottom:16px;overflow:hidden}
+  .panel h2{font-size:13px;font-weight:600;padding:12px 16px;border-bottom:1px solid var(--border);
+    display:flex;justify-content:space-between;align-items:center;background:var(--surface)}
+  .panel h2 .tools{display:flex;gap:6px}
+  table{width:100%;border-collapse:collapse}
+  th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--slate);
+    padding:8px 12px;border-bottom:1px solid var(--border);background:var(--surface);font-weight:600}
+  td{padding:10px 12px;border-bottom:1px solid var(--border);vertical-align:middle}
+  tr:last-child td{border-bottom:none}
+  tr:hover td{background:#FAFBFC}
+  .thumb{width:48px;height:34px;object-fit:cover;border-radius:4px;border:1px solid var(--border);
+    background:var(--surface);cursor:zoom-in;display:block}
+  .pill{font-size:10.5px;font-weight:600;padding:3px 8px;border-radius:12px;white-space:nowrap;display:inline-block}
+  .pill.pending_approval,.pill.expired,.pill.submitted{background:#FEF3C7;color:#92400E}
+  .pill.approved,.pill.queued{background:#DBEAFE;color:#1E40AF}
+  .pill.printing{background:#E0E7FF;color:#3730A3}
+  .pill.printed,.pill.picked_up{background:#DCFCE7;color:#166534}
+  .pill.rejected,.pill.failed,.pill.cancelled,.pill.preflight_failed{background:#FEE2E2;color:#991B1B}
+  .pill.ready,.pill.draft,.pill.uploaded{background:#F3F4F6;color:#374151}
+  .pill.online{background:#DCFCE7;color:#166534}
+  .pill.offline{background:#FEE2E2;color:#991B1B}
+  .pill.unknown,.pill.degraded{background:#FEF3C7;color:#92400E}
+  .b{border:1px solid var(--border);background:#fff;border-radius:6px;padding:5px 10px;font-size:12px;
+    cursor:pointer;font-weight:500;font-family:inherit}
+  .b:hover{background:var(--surface)}
+  .b.go{background:var(--green);border-color:var(--green);color:#fff}
+  .b.no{background:#fff;border-color:#FCA5A5;color:var(--red)}
+  .b.gold{background:var(--gold);border-color:var(--gold)}
+  .b:disabled{opacity:.45;cursor:not-allowed}
+  .muted{color:var(--slate);font-size:12px}
+  .empty{padding:26px;text-align:center;color:var(--slate);font-size:13px}
+  .warnbar{background:#FFFBEB;border-bottom:1px solid #FDE68A;color:#78350F;padding:8px 16px;font-size:12px}
+  .inkbar{height:5px;background:var(--border);border-radius:3px;overflow:hidden;width:56px;display:inline-block;
+    vertical-align:middle;margin-left:5px}
+  .inkbar i{display:block;height:100%;background:var(--green)}
+  .inkbar.low i{background:var(--red)}
+  dialog{border:none;border-radius:10px;padding:0;box-shadow:0 20px 60px rgba(0,0,0,.3);max-width:900px;width:92vw}
+  dialog::backdrop{background:rgba(17,24,39,.72)}
+  .dlg-head{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;
+    align-items:center;font-weight:600}
+  .dlg-body{padding:18px;max-height:74vh;overflow:auto}
+  .dlg-body img{max-width:100%;border:1px solid var(--border);border-radius:6px;display:block;margin-bottom:14px}
+  .kv{display:grid;grid-template-columns:150px 1fr;gap:5px 14px;font-size:13px;margin-bottom:16px}
+  .kv dt{color:var(--slate)}
+  textarea{width:100%;border:1px solid var(--border);border-radius:6px;padding:9px;font:inherit;
+    font-size:13px;resize:vertical;min-height:64px}
+  .timeline{border-left:2px solid var(--border);padding-left:14px;margin-top:6px}
+  .timeline div{margin-bottom:9px;font-size:12px;position:relative}
+  .timeline div::before{content:'';position:absolute;left:-19px;top:5px;width:7px;height:7px;
+    border-radius:50%;background:var(--border)}
+  #toasts{position:fixed;bottom:18px;right:18px;z-index:99;display:flex;flex-direction:column;gap:8px}
+  .toast{background:var(--ink);color:#fff;padding:11px 15px;border-radius:7px;font-size:13px;max-width:330px}
+  .toast.ok{background:#065F46} .toast.bad{background:#991B1B}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="brand"><span class="badge">KENT STATE</span> Poster console</div>
+  <div>
+    <span class="muted" id="who" style="color:#9CA3AF"></span>
+    <a href="%%BASE_PATH%%/">Submit a poster</a>
+    <a href="%%BASE_PATH%%/auth/logout">Sign out</a>
+  </div>
+</div>
+
+<div class="wrap">
+  <div class="strip" id="stats"></div>
+
+  <div class="grid">
+    <div>
+      <div class="panel">
+        <h2>Waiting for a decision
+          <span class="tools"><button class="b" onclick="refresh()">Refresh</button></span></h2>
+        <div id="pending"></div>
+      </div>
+
+      <div class="panel">
+        <h2>Printing and queued</h2>
+        <div id="active"></div>
+      </div>
+
+      <div class="panel">
+        <h2>Recent
+          <span class="tools">
+            <select class="b" id="filter" onchange="refresh()">
+              <option value="">All statuses</option>
+              <option value="printed">Printed</option>
+              <option value="picked_up">Picked up</option>
+              <option value="rejected">Rejected</option>
+              <option value="failed">Failed</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+          </span></h2>
+        <div id="recent"></div>
+      </div>
+    </div>
+
+    <div>
+      <div class="panel">
+        <h2>Printers</h2>
+        <div id="printers"></div>
+      </div>
+      <div class="panel">
+        <h2>Supplies
+          <span class="tools"><button class="b" onclick="loadSupplies()">Refresh</button></span></h2>
+        <div id="supplies"></div>
+      </div>
+      <div class="panel">
+        <h2>System
+          <span class="tools"><button class="b" onclick="purge()">Run purge</button></span></h2>
+        <div id="health"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<dialog id="dlg"><div class="dlg-head"><span id="dlg-title"></span>
+  <button class="b" onclick="document.getElementById('dlg').close()">Close</button></div>
+  <div class="dlg-body" id="dlg-body"></div></dialog>
+
+<div id="toasts"></div>
+
+<script src="%%BASE_PATH%%/socket.io/socket.io.js"></script>
+<script>
+'use strict';
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c =>
+  ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const mb = (b) => b == null ? '—' : (b/1048576).toFixed(1) + ' MB';
+const ago = (t) => {
+  if (!t) return 'never';
+  const s = (Date.now() - new Date(t.replace(' ', 'T') + 'Z').getTime()) / 1000;
+  if (s < 60) return Math.round(s) + 's ago';
+  if (s < 3600) return Math.round(s/60) + 'm ago';
+  if (s < 86400) return Math.round(s/3600) + 'h ago';
+  return Math.round(s/86400) + 'd ago';
+};
+function toast(m, k = '') {
+  const t = document.createElement('div'); t.className = 'toast ' + k; t.textContent = m;
+  $('toasts').appendChild(t); setTimeout(() => t.remove(), 4500);
+}
+async function api(p, o = {}) {
+  const r = await fetch(window.__BASE__ + p, { credentials: 'same-origin',
+    headers: o.body ? { 'Content-Type': 'application/json' } : {}, ...o });
+  if (r.status === 401) { location.href = '/'; throw new Error('unauth'); }
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok && r.status !== 202) throw new Error(d.message || d.error || 'failed');
+  return d;
+}
+
+let DATA = { jobs: [], counts: {}, printers: [] };
+
+// ─── render ───────────────────────────────────────────────────────
+function jobRow(j, actions) {
+  return `<tr>
+    <td><img class="thumb" src="${esc(j.thumbUrl)}" alt="" onclick="open_('${esc(j.public_id)}')"
+         onerror="this.style.visibility='hidden'"></td>
+    <td><strong>${esc(j.title)}</strong><br>
+        <span class="muted mono">${esc(j.public_id)}</span>
+        <span class="muted"> · ${esc(j.requester_email || '')}</span></td>
+    <td>${j.finished_width_in ? `${j.finished_width_in}″ × ${j.finished_height_in}″` : '—'}<br>
+        <span class="muted">${j.effective_dpi || '?'} DPI${j.copies > 1 ? ` · ${j.copies} copies` : ''}</span></td>
+    <td>${esc(j.printer_name || '—')}<br><span class="muted">${esc(j.pickup_location || '')}</span></td>
+    <td><span class="pill ${j.status}">${esc(j.status.replace(/_/g, ' '))}</span>
+        ${j.spooler_status ? `<br><span class="muted mono">${esc(j.spooler_status)}${
+          j.host_job_id ? ' #' + j.host_job_id : ''}</span>` : ''}</td>
+    <td style="white-space:nowrap">${actions}</td></tr>`;
+}
+const TABLE = (rows, cols = 'File,Job,Size,Destination,Status,Actions') =>
+  `<table><thead><tr>${cols.split(',').map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table>`;
+
+function render() {
+  const c = DATA.counts;
+  const n = (k) => c[k] || 0;
+  $('stats').innerHTML = [
+    ['Awaiting decision', n('pending_approval') + n('expired'), n('pending_approval') + n('expired') ? 'hot' : ''],
+    ['Queued', n('queued'), ''],
+    ['Printing', n('printing'), ''],
+    ['Ready for pickup', n('printed'), ''],
+    ['Failed', n('failed'), n('failed') ? 'bad' : ''],
+    ['Total jobs', Object.values(c).reduce((a, b) => a + b, 0), ''],
+  ].map(([l, v, cls]) => `<div class="stat ${cls}"><div class="n">${v}</div><div class="l">${l}</div></div>`).join('');
+
+  const pending = DATA.jobs.filter(j => ['pending_approval', 'expired', 'submitted'].includes(j.status));
+  $('pending').innerHTML = pending.length ? TABLE(pending.map(j => jobRow(j,
+    `<button class="b go" onclick="decide('${esc(j.public_id)}','approved')">Approve</button>
+     <button class="b no" onclick="decide('${esc(j.public_id)}','rejected')">Reject</button>`)).join(''))
+    : '<div class="empty">Nothing waiting. Good.</div>';
+
+  const active = DATA.jobs.filter(j => ['approved', 'queued', 'printing'].includes(j.status));
+  $('active').innerHTML = active.length ? TABLE(active.map(j => jobRow(j,
+    `<button class="b" onclick="open_('${esc(j.public_id)}')">Details</button>
+     <button class="b" onclick="reprint('${esc(j.public_id)}')">Re-send</button>`)).join(''))
+    : '<div class="empty">No jobs on the printers right now.</div>';
+
+  const done = DATA.jobs.filter(j =>
+    ['printed', 'picked_up', 'rejected', 'failed', 'cancelled'].includes(j.status)).slice(0, 25);
+  $('recent').innerHTML = done.length ? TABLE(done.map(j => jobRow(j,
+    `<button class="b" onclick="open_('${esc(j.public_id)}')">Details</button>` +
+    (j.status === 'printed' ? `<button class="b" onclick="setStatus('${esc(j.public_id)}','picked_up')">Picked up</button>` : '') +
+    (j.status === 'failed' ? `<button class="b gold" onclick="reprint('${esc(j.public_id)}')">Retry</button>` : '')
+  )).join('')) : '<div class="empty">Nothing yet.</div>';
+}
+
+function renderPrinters(d) {
+  DATA.printers = d.printers;
+  const offline = d.hosts.filter(h => h.is_active && h.status !== 'online');
+  $('printers').innerHTML =
+    (offline.length ? `<div class="warnbar">Print host${offline.length > 1 ? 's' : ''} not reporting: ${
+      offline.map(h => `${esc(h.code)} (last seen ${ago(h.last_seen_at)})`).join(', ')
+    }. Jobs will queue in the portal until it's back.</div>` : '') +
+    (d.printers.length ? `<table><thead><tr><th>Printer</th><th>Roll</th><th>State</th><th>Ink</th><th>Queue</th></tr></thead><tbody>${
+      d.printers.map(p => {
+        const ink = p.ink_levels_json ? JSON.parse(p.ink_levels_json) : null;
+        const q = d.queue.filter(x => x.printer_id === p.id);
+        return `<tr>
+          <td><strong>${esc(p.display_name)}</strong><br>
+              <span class="muted mono">${esc(p.windows_printer_name)}</span></td>
+          <td>${p.roll_width_in}″</td>
+          <td><span class="pill ${p.host_status === 'online' ? (p.device_state === 'Normal' ? 'online' : 'unknown') : 'offline'}">${
+              esc(p.host_status === 'online' ? (p.device_state || 'unknown') : 'host offline')}</span>
+              ${p.reported_at ? `<br><span class="muted">${ago(p.reported_at)}</span>` : ''}</td>
+          <td>${ink ? Object.entries(ink).map(([k, v]) =>
+              `<div class="muted">${esc(k)} <span class="inkbar ${v <= 15 ? 'low' : ''}"><i style="width:${
+                Math.max(0, Math.min(100, v))}%"></i></span> ${v}%</div>`).join('')
+              : '<span class="muted">not reported</span>'}</td>
+          <td>${q.length ? q.map(x => `<div class="muted mono">${x.place_in_line}. ${esc(x.public_id)} ${esc(x.status)}</div>`).join('') : '<span class="muted">idle</span>'}</td>
+        </tr>`;
+      }).join('')}</tbody></table>` : '<div class="empty">No printers configured. Run the seed script.</div>');
+}
+
+async function loadSupplies() {
+  try {
+    const d = await api('/api/admin/supplies');
+    $('supplies').innerHTML = d.supplies.length
+      ? `<table><thead><tr><th>Item</th><th>On hand</th><th></th></tr></thead><tbody>${
+        d.supplies.map(s => `<tr${s.on_hand <= s.reorder_at ? ' style="background:#FFFBEB"' : ''}>
+          <td>${esc(s.description)}<br><span class="muted mono">${esc(s.sku)}</span></td>
+          <td>${s.on_hand}${s.on_hand <= s.reorder_at ? ' <span class="pill offline">low</span>' : ''}</td>
+          <td style="white-space:nowrap">
+            <button class="b" onclick="adjust('${esc(s.sku)}',-1)">−</button>
+            <button class="b" onclick="adjust('${esc(s.sku)}',1)">+</button></td></tr>`).join('')}</tbody></table>`
+      : '<div class="empty">No supplies tracked.</div>';
+  } catch (e) { $('supplies').innerHTML = `<div class="empty">${esc(e.message)}</div>`; }
+}
+
+async function adjust(sku, delta) {
+  try { await api(`/api/admin/supplies/${encodeURIComponent(sku)}/adjust`,
+    { method: 'POST', body: JSON.stringify({ delta, reason: delta > 0 ? 'restock' : 'job' }) });
+    loadSupplies();
+  } catch (e) { toast(e.message, 'bad'); }
+}
+
+async function loadHealth() {
+  try {
+    const h = await api('/api/admin/health');
+    const missing = Object.entries(h.toolchain).filter(([, v]) => !v.ok);
+    $('health').innerHTML = `
+      ${missing.length ? `<div class="warnbar">Missing converters: ${
+        missing.map(([k]) => esc(k)).join(', ')}. Slides and PDFs won't render.</div>` : ''}
+      <table><tbody>
+        <tr><td>Database</td><td>${h.db.sizeMb} MB<br><span class="muted mono">${esc(h.db.path)}</span></td></tr>
+        <tr><td>Stored files</td><td>${h.storage.blobs} originals · ${mb(h.storage.bytes)}${
+          h.storage.orphans ? `<br><span class="muted">${h.storage.orphans} unreferenced, next purge clears them</span>` : ''}</td></tr>
+        <tr><td>Render queue</td><td>${h.renderQueue.length
+          ? h.renderQueue.map(r => `${r.n} ${esc(r.kind)} ${esc(r.status)}`).join('<br>')
+          : '<span class="muted">idle</span>'}</td></tr>
+        <tr><td>Power Automate</td><td>${h.outbox.pending} pending${
+          h.outbox.deadLettered ? ` · <span style="color:var(--red)">${h.outbox.deadLettered} undeliverable</span>
+          <button class="b" onclick="retryOutbox()">Retry</button>` : ''}</td></tr>
+        <tr><td>Print hosts</td><td>${h.hosts.map(x =>
+          `<span class="pill ${esc(x.status)}">${esc(x.code)}</span> ${ago(x.last_seen_at)}${
+            x.agent_version ? ` <span class="muted mono">v${esc(x.agent_version)}</span>` : ''}`).join('<br>')}</td></tr>
+      </tbody></table>`;
+  } catch (e) { $('health').innerHTML = `<div class="empty">${esc(e.message)}</div>`; }
+}
+
+// ─── actions ──────────────────────────────────────────────────────
+async function open_(publicId) {
+  const d = await api(`/api/admin/jobs/${publicId}`);
+  const j = d.job;
+  const pf = d.preflight;
+  $('dlg-title').textContent = `${j.public_id} — ${j.title}`;
+  $('dlg-body').innerHTML = `
+    <img src="${window.__BASE__}/api/jobs/${esc(j.public_id)}/file/preview" alt="Poster preview"
+         onerror="this.replaceWith(Object.assign(document.createElement('p'),{className:'muted',textContent:'Preview not rendered yet.'}))">
+    <dl class="kv">
+      <dt>Requester</dt><dd>${esc(j.requester_name || '')} &lt;${esc(j.requester_email)}&gt;</dd>
+      <dt>Finished size</dt><dd>${j.finished_width_in}″ × ${j.finished_height_in}″ ·
+        ${j.print_length_in}″ of ${j.roll_width_in}″ roll · ${esc(j.orientation || '')}</dd>
+      <dt>Resolution</dt><dd>${j.effective_dpi} DPI${
+        pf ? ` · raster ${pf.raster.widthPx}×${pf.raster.heightPx} px (${pf.raster.megapixels} MP)` : ''}</dd>
+      <dt>Destination</dt><dd>${esc(j.printer_name || '—')} · ${esc(j.pickup_location || '')}</dd>
+      <dt>Billing</dt><dd>${esc(d.job.billing_index || '—')}</dd>
+      ${pf?.issues?.length ? `<dt>Preflight</dt><dd>${pf.issues.map(i =>
+        `<span class="pill ${i.severity === 'fail' ? 'failed' : 'expired'}">${esc(i.severity)}</span> ${esc(i.message)}`).join('<br>')}</dd>` : ''}
+      ${d.cost ? `<dt>Cost</dt><dd>$${(d.cost.total_cost_cents/100).toFixed(2)} ·
+        ${d.cost.ink_total_ml?.toFixed(2) || '?'} ml ink</dd>` : ''}
+      <dt>Files</dt><dd>${d.files.map(f =>
+        `${esc(f.role)} ${mb(f.byte_size)}${f.is_purged ? ' (purged)' : ''}`).join(' · ')}</dd>
+    </dl>
+    ${['pending_approval','expired','submitted'].includes(j.status) ? `
+      <textarea id="dlg-comments" placeholder="Comments back to the requester (required if you reject)"></textarea>
+      <div style="margin-top:10px;display:flex;gap:8px">
+        <button class="b go" onclick="decide('${esc(j.public_id)}','approved',true)">Approve and print</button>
+        <button class="b no" onclick="decide('${esc(j.public_id)}','rejected',true)">Reject</button>
+      </div>` : `
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="b" onclick="reprint('${esc(j.public_id)}')">Send to printer</button>
+        <button class="b" onclick="rerender('${esc(j.public_id)}','print')">Re-render print file</button>
+        <button class="b" onclick="rerender('${esc(j.public_id)}','preview')">Re-render preview</button>
+        <a class="b" href="${window.__BASE__}/api/jobs/${esc(j.public_id)}/file/original" style="text-decoration:none;color:inherit">Download original</a>
+      </div>`}
+    <h3 style="font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--slate);margin:20px 0 8px">History</h3>
+    <div class="timeline">${d.events.map(e =>
+      `<div><strong>${esc(e.to_status || e.kind)}</strong> · ${esc(e.actor)} · ${ago(e.at)}${
+        e.message ? `<br><span class="muted">${esc(e.message)}</span>` : ''}</div>`).join('')}</div>`;
+  $('dlg').showModal();
+}
+
+async function decide(publicId, decision, fromDialog) {
+  const comments = fromDialog ? ($('dlg-comments')?.value || '') :
+    (decision === 'rejected' ? prompt('Why is this being rejected? The requester sees this.') : '');
+  if (decision === 'rejected' && !comments) { toast('A reason is required to reject', 'bad'); return; }
+  try {
+    const r = await api(`/api/admin/jobs/${publicId}/decide`,
+      { method: 'POST', body: JSON.stringify({ decision, comments }) });
+    toast(r.detail === 'awaiting_render'
+      ? `${publicId} approved — printing as soon as the file finishes rendering`
+      : `${publicId} ${decision}`, 'ok');
+    $('dlg').close();
+    refresh();
+  } catch (e) { toast(e.message, 'bad'); }
+}
+
+async function reprint(publicId) {
+  try {
+    const r = await api(`/api/admin/jobs/${publicId}/print`, { method: 'POST', body: JSON.stringify({}) });
+    toast(r.detail || `${publicId} sent to the printer`, 'ok');
+    $('dlg').close(); refresh();
+  } catch (e) { toast(e.message, 'bad'); }
+}
+async function rerender(publicId, kind) {
+  try { await api(`/api/admin/jobs/${publicId}/rerender`, { method: 'POST', body: JSON.stringify({ kind }) });
+    toast(`Re-rendering the ${kind}`, 'ok');
+  } catch (e) { toast(e.message, 'bad'); }
+}
+async function setStatus(publicId, status) {
+  try { await api(`/api/admin/jobs/${publicId}/status`, { method: 'POST', body: JSON.stringify({ status }) });
+    refresh();
+  } catch (e) { toast(e.message, 'bad'); }
+}
+async function purge() {
+  if (!confirm('Delete originals and print rasters for jobs past their retention window?')) return;
+  try { const r = await api('/api/admin/maintenance/purge', { method: 'POST', body: JSON.stringify({}) });
+    toast(`Freed ${mb(r.bytesFreed)} across ${r.files} files`, 'ok'); loadHealth();
+  } catch (e) { toast(e.message, 'bad'); }
+}
+async function retryOutbox() {
+  try { const r = await api('/api/admin/maintenance/outbox/retry', { method: 'POST', body: '{}' });
+    toast(`Requeued ${r.requeued}`, 'ok'); loadHealth();
+  } catch (e) { toast(e.message, 'bad'); }
+}
+
+// ─── load + live ──────────────────────────────────────────────────
+async function refresh() {
+  try {
+    const f = $('filter').value;
+    const d = await api('/api/admin/jobs?limit=200' + (f ? `&status=${f}` : ''));
+    DATA.jobs = d.jobs; DATA.counts = d.counts; render();
+    renderPrinters(await api('/api/admin/printers'));
+  } catch (e) { toast(e.message, 'bad'); }
+}
+
+(async function () {
+  const me = await api('/auth/me').catch(() => null);
+  if (!me) { location.href = '/'; return; }
+  $('who').textContent = `${me.name} · ${me.role}`;
+  await refresh(); await loadSupplies(); await loadHealth();
+
+  const socket = io({ path: window.__BASE__ + '/socket.io', withCredentials: true });
+  socket.on('job:status', () => refresh());
+  socket.on('job:spooler', () => refresh());
+  socket.on('printer:status', () => api('/api/admin/printers').then(renderPrinters).catch(() => {}));
+  socket.on('host:online', (d) => toast(`Print host ${d.host} is online`, 'ok'));
+  socket.on('dispatch:failed', (d) => toast(`${d.jobId} couldn't reach ${d.printer}: ${d.error}`, 'bad'));
+  socket.on('dispatch:abandoned', (d) => toast(`${d.jobId} lost contact with the print host`, 'bad'));
+  socket.on('job:expired', (d) => toast(`${d.jobId} passed its approval deadline`, 'bad'));
+  socket.on('outbox:dead_letter', (d) => toast(`Power Automate unreachable for ${d.event}`, 'bad'));
+  socket.on('supplies:updated', () => loadSupplies());
+
+  setInterval(loadHealth, 60000);
+
+  // Deep link from the Teams approval card: /admin/job/PP-2026-0413
+  const m = /^\/admin\/job\/([A-Za-z0-9-]+)/.exec(location.pathname);
+  if (m) open_(m[1]).catch(() => toast('Job not found', 'bad'));
+})();
+</script>
+</body>
+</html>

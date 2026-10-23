@@ -1,0 +1,958 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<!-- BASE_PATH: '' for a normal root deployment; a path like '/static/posters'
+     when this portal shares a host with something else instead of owning
+     its own subdomain. Every fetch(), Socket.IO connection, and the handful
+     of literal links below are prefixed with it so they resolve back to
+     this app rather than to whatever else lives at the site root. -->
+<script>window.__BASE__='%%BASE_PATH%%';</script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Poster printing — Kent State</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --gold:#EEB111; --gold-dark:#C9920A; --gold-light:#FFF3CC;
+    --ink:#111827; --ink-soft:#374151; --slate:#6B7280; --border:#E5E7EB;
+    --surface:#F9FAFB; --white:#fff; --red:#DC2626; --amber:#D97706;
+    --green:#16A34A; --blue:#2563EB;
+    --radius:10px; --shadow:0 2px 12px rgba(0,0,0,.08),0 1px 3px rgba(0,0,0,.06);
+    --shadow-lg:0 8px 32px rgba(0,0,0,.14);
+  }
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Inter',system-ui,sans-serif;background:#F3F4F6;color:var(--ink);min-height:100vh}
+  a{color:var(--blue)}
+  button{font:inherit}
+  :focus-visible{outline:3px solid var(--blue);outline-offset:2px}
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+  /* top bar */
+  .topbar{background:var(--ink);color:#fff;display:flex;align-items:center;justify-content:space-between;
+    padding:0 24px;height:56px;position:sticky;top:0;z-index:100;box-shadow:0 2px 8px rgba(0,0,0,.3)}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:600;letter-spacing:-.01em}
+  .brand-badge{background:var(--gold);color:var(--ink);font-weight:700;font-size:12px;
+    padding:4px 8px;border-radius:5px;letter-spacing:.05em}
+  .user-pill{display:flex;align-items:center;gap:10px;font-size:13px}
+  .user-avatar{width:28px;height:28px;border-radius:50%;background:var(--gold);color:var(--ink);
+    display:grid;place-items:center;font-weight:700;font-size:12px;overflow:hidden}
+  .user-avatar img{width:100%;height:100%;object-fit:cover}
+  .linkbtn{background:none;border:none;color:#9CA3AF;cursor:pointer;font-size:13px;text-decoration:underline}
+  .linkbtn:hover{color:#fff}
+
+  /* auth gate */
+  .gate{position:fixed;inset:0;background:var(--ink);display:grid;place-items:center;z-index:500;padding:24px}
+  .gate-card{background:#fff;border-radius:14px;padding:40px;max-width:420px;width:100%;text-align:center;
+    box-shadow:var(--shadow-lg)}
+  .gate-card h1{font-family:'DM Serif Display',serif;font-size:30px;font-weight:400;margin-bottom:8px}
+  .gate-card p{color:var(--slate);font-size:14px;line-height:1.6;margin-bottom:24px}
+  .google-btn{width:100%;display:flex;align-items:center;justify-content:center;gap:10px;
+    background:#fff;border:1.5px solid var(--border);border-radius:8px;padding:12px;
+    font-size:15px;font-weight:500;cursor:pointer;transition:border-color .15s,box-shadow .15s}
+  .google-btn:hover{border-color:var(--slate);box-shadow:var(--shadow)}
+  .gate-note{margin-top:18px;font-size:12.5px;color:var(--slate);line-height:1.5}
+  .gate-error{background:#FEF2F2;border:1px solid #FECACA;color:#991B1B;border-radius:8px;
+    padding:12px 14px;font-size:13px;text-align:left;margin-bottom:20px;line-height:1.5}
+
+  /* layout */
+  .wrap{max-width:1240px;margin:0 auto;padding:24px}
+  .banner{background:var(--gold-light);border:1px solid var(--gold);border-radius:var(--radius);
+    padding:12px 16px;font-size:13.5px;margin-bottom:18px}
+  .cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px}
+  @media (max-width:960px){.cols{grid-template-columns:1fr}}
+  .card{background:#fff;border:1px solid var(--border);border-radius:var(--radius);
+    box-shadow:var(--shadow);margin-bottom:20px;overflow:hidden}
+  .card-header{padding:16px 20px;border-bottom:1px solid var(--border);display:flex;
+    align-items:center;justify-content:space-between}
+  .card-title{font-weight:600;font-size:15px;display:flex;align-items:center;gap:8px}
+  .card-body{padding:20px}
+  .eyebrow{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--slate)}
+
+  /* form */
+  .field{margin-bottom:16px}
+  .field label{display:block;font-size:13px;font-weight:500;margin-bottom:6px;color:var(--ink-soft)}
+  .req::after{content:'*';color:var(--red);margin-left:3px}
+  .input,.select,.textarea{width:100%;border:1.5px solid var(--border);border-radius:8px;
+    padding:10px 12px;font-size:14px;font-family:inherit;background:#fff;transition:border-color .15s}
+  .input:focus,.select:focus,.textarea:focus{border-color:var(--gold);outline:none}
+  .textarea{resize:vertical;min-height:72px}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .hint{font-size:12px;color:var(--slate);margin-top:5px;line-height:1.45}
+
+  .radio-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .radio-card{border:1.5px solid var(--border);border-radius:8px;padding:12px;cursor:pointer;
+    text-align:center;transition:.15s;background:#fff}
+  .radio-card:hover{border-color:var(--gold-dark)}
+  .radio-card.on{border-color:var(--gold);background:var(--gold-light);box-shadow:inset 0 0 0 1px var(--gold)}
+  .radio-card .big{font-size:19px;font-weight:700}
+  .radio-card .small{font-size:11.5px;color:var(--slate);margin-top:2px}
+
+  /* dropzone */
+  .drop{border:2px dashed var(--border);border-radius:var(--radius);padding:32px 20px;text-align:center;
+    cursor:pointer;transition:.15s;background:var(--surface);position:relative}
+  .drop:hover,.drop.hot{border-color:var(--gold);background:var(--gold-light)}
+  .drop input{position:absolute;inset:0;opacity:0;cursor:pointer}
+  .drop .icon{font-size:30px;display:block;margin-bottom:8px}
+  .drop .lede{font-weight:600;font-size:14.5px}
+  .drop .sub{font-size:12.5px;color:var(--slate);margin-top:4px}
+
+  .filechip{display:flex;align-items:center;gap:12px;background:var(--surface);border:1px solid var(--border);
+    border-radius:8px;padding:11px 13px;margin-top:12px;font-size:13px}
+  .filechip .name{font-weight:500;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .filechip .size{color:var(--slate);font-size:12px}
+  .filechip button{background:none;border:none;color:var(--red);cursor:pointer;font-size:16px;line-height:1}
+
+  /* verdict */
+  .verdict{margin-top:12px;border-radius:8px;padding:13px 15px;font-size:13px;line-height:1.55;display:none}
+  .verdict.show{display:block}
+  .verdict.pass{background:#F0FDF4;border:1px solid #BBF7D0;color:#14532D}
+  .verdict.warn{background:#FFFBEB;border:1px solid #FDE68A;color:#78350F}
+  .verdict.fail{background:#FEF2F2;border:1px solid #FECACA;color:#7F1D1D}
+  .verdict.busy{background:var(--surface);border:1px solid var(--border);color:var(--slate)}
+  .verdict h4{font-size:13.5px;font-weight:700;margin-bottom:5px}
+  .verdict ul{margin:8px 0 0 16px}
+  .verdict li{margin-bottom:7px}
+  .verdict .fix{display:block;opacity:.85;font-size:12.5px;margin-top:2px}
+
+  .ack{display:flex;gap:9px;align-items:flex-start;margin-top:12px;font-size:13px;
+    background:#FFFBEB;border:1px solid #FDE68A;border-radius:8px;padding:11px 13px}
+  .ack input{margin-top:2px;flex-shrink:0}
+
+  .btn{width:100%;background:var(--gold);color:var(--ink);border:none;border-radius:8px;padding:13px;
+    font-size:15px;font-weight:600;cursor:pointer;transition:.15s;margin-top:6px}
+  .btn:hover:not(:disabled){background:var(--gold-dark)}
+  .btn:disabled{background:var(--border);color:var(--slate);cursor:not-allowed}
+  .btn.ghost{background:#fff;border:1.5px solid var(--border);color:var(--ink-soft)}
+  .btn.ghost:hover:not(:disabled){border-color:var(--slate);background:var(--surface)}
+
+  /* printer emulator */
+  .stage{position:relative;background:#2A2A2E;border-radius:var(--radius);overflow:hidden;aspect-ratio:480/340}
+  .stage svg{width:100%;height:100%;display:block}
+  .paper{position:absolute;left:50%;transform:translateX(-50%);top:37.6%;
+    background:#F5F0E8;box-shadow:0 6px 18px rgba(0,0,0,.45);overflow:hidden;
+    transition:width .45s cubic-bezier(.22,1,.36,1),height .45s cubic-bezier(.22,1,.36,1);
+    display:grid;place-items:center}
+  .paper img{width:100%;height:100%;object-fit:fill;display:block}
+  .paper embed{width:100%;height:100%;border:none}
+  .paper .ph{color:#9CA3AF;font-size:12px;text-align:center;padding:10px;line-height:1.5}
+  .badge{position:absolute;top:10px;right:10px;background:rgba(0,0,0,.72);color:#fff;
+    padding:5px 10px;border-radius:20px;font-size:11px;font-weight:600;letter-spacing:.03em}
+  .feedhint{position:absolute;bottom:8px;left:0;right:0;text-align:center;color:#6B7280;
+    font-size:10.5px;letter-spacing:.06em;text-transform:uppercase}
+
+  .meta{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--border);
+    border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-top:14px}
+  .meta div{background:#fff;padding:11px 10px;text-align:center}
+  .meta .k{font-size:10.5px;color:var(--slate);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px}
+  .meta .v{font-size:13.5px;font-weight:600}
+  .v.good{color:var(--green)} .v.warn{color:var(--amber)} .v.bad{color:var(--red)} .v.dim{color:var(--slate)}
+
+  /* jobs */
+  .tabs{display:flex;gap:2px;padding:0 20px;border-bottom:1px solid var(--border);background:var(--surface)}
+  .tab{padding:11px 14px;font-size:13px;font-weight:500;color:var(--slate);cursor:pointer;
+    background:none;border:none;border-bottom:2px solid transparent}
+  .tab.on{color:var(--ink);border-bottom-color:var(--gold)}
+  .job{display:flex;align-items:center;gap:13px;padding:13px 20px;border-bottom:1px solid var(--border)}
+  .job.resumable{cursor:pointer}
+  .job.resumable:hover{background:var(--gold-light)}
+  .job-side{display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0}
+  .job-x{border:1px solid var(--border);background:#fff;color:var(--slate);border-radius:6px;
+    padding:3px 9px;font:inherit;font-size:11.5px;cursor:pointer}
+  /* Kept quiet until hover: discarding is destructive, so it shouldn't
+     compete with the status pill for attention on every row. */
+  .job-x:hover{border-color:var(--red);color:var(--red);background:#fff}
+  .job:last-child{border-bottom:none}
+  .job-thumb{width:52px;height:38px;border-radius:5px;background:var(--surface);border:1px solid var(--border);
+    object-fit:cover;flex-shrink:0}
+  .job-main{flex:1;min-width:0}
+  .job-title{font-size:13.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .job-sub{font-size:12px;color:var(--slate);margin-top:2px}
+  .pill{font-size:11px;font-weight:600;padding:4px 9px;border-radius:20px;white-space:nowrap}
+  .pill.draft,.pill.ready,.pill.uploaded{background:#F3F4F6;color:#374151}
+  .pill.pending_approval,.pill.submitted,.pill.expired{background:#FEF3C7;color:#92400E}
+  .pill.approved,.pill.queued{background:#DBEAFE;color:#1E40AF}
+  .pill.printing{background:#E0E7FF;color:#3730A3}
+  .pill.printed,.pill.picked_up{background:#DCFCE7;color:#166534}
+  .pill.rejected,.pill.failed,.pill.preflight_failed,.pill.cancelled{background:#FEE2E2;color:#991B1B}
+  .empty{padding:34px 20px;text-align:center;color:var(--slate);font-size:13.5px;line-height:1.6}
+
+  /* toast */
+  #toasts{position:fixed;bottom:20px;right:20px;z-index:400;display:flex;flex-direction:column;gap:9px}
+  .toast{background:var(--ink);color:#fff;padding:12px 16px;border-radius:8px;font-size:13.5px;
+    box-shadow:var(--shadow-lg);max-width:340px;animation:slide .25s ease}
+  .toast.ok{background:#065F46} .toast.bad{background:#991B1B} .toast.warn{background:#92400E}
+  @keyframes slide{from{transform:translateX(24px);opacity:0}to{transform:none;opacity:1}}
+  .spin{display:inline-block;width:13px;height:13px;border:2px solid currentColor;border-top-color:transparent;
+    border-radius:50%;animation:spin .7s linear infinite;vertical-align:-2px;margin-right:6px}
+  @keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+
+<!-- ── sign-in gate ─────────────────────────────────────────────── -->
+<div class="gate" id="gate">
+  <div class="gate-card">
+    <div class="brand-badge" style="display:inline-block;margin-bottom:16px">KENT STATE</div>
+    <h1>Poster printing</h1>
+    <p>Submit a poster, watch it print, pick it up. Sign in with your Kent State account to start.</p>
+    <div class="gate-error" id="gate-error" style="display:none"></div>
+    <button class="google-btn" onclick="location.href='%%BASE_PATH%%/auth/google'">
+      <svg width="18" height="18" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.76h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.76c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84A11 11 0 0 0 12 23z"/><path fill="#FBBC05" d="M5.84 14.11a6.6 6.6 0 0 1 0-4.22V7.05H2.18a11 11 0 0 0 0 9.9l3.66-2.84z"/><path fill="#EA4335" d="M12 4.75c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 1.46 14.97.5 12 .5A11 11 0 0 0 2.18 7.05l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+      Sign in with Google
+    </button>
+    <div class="gate-note">Use your <strong>@kent.edu</strong> account. Personal Google accounts can't submit print jobs.</div>
+  </div>
+</div>
+
+<!-- ── app ──────────────────────────────────────────────────────── -->
+<div class="topbar">
+  <div class="brand"><span class="brand-badge">KENT STATE</span> Poster printing</div>
+  <div class="user-pill">
+    <div class="user-avatar" id="avatar">?</div>
+    <span id="who">—</span>
+    <a class="linkbtn" id="adminlink" href="%%BASE_PATH%%/admin" style="display:none">Console</a>
+    <button class="linkbtn" onclick="location.href='%%BASE_PATH%%/auth/logout'">Sign out</button>
+  </div>
+</div>
+
+<div class="wrap">
+  <div class="banner" id="banner" style="display:none"></div>
+
+  <div class="cols">
+    <!-- left: the form -->
+    <div>
+      <div class="card">
+        <div class="card-header"><div class="card-title">Your poster</div></div>
+        <div class="card-body">
+
+          <div class="field">
+            <label class="req" for="f-title">Poster title</label>
+            <input class="input" id="f-title" maxlength="200" placeholder="Protein folding dynamics in E. coli" />
+          </div>
+
+          <div class="row2">
+            <div class="field">
+              <label for="f-dept">Department</label>
+              <input class="input" id="f-dept" maxlength="120" placeholder="Biological Sciences" />
+            </div>
+            <div class="field">
+              <label for="f-advisor">Advisor or PI</label>
+              <input class="input" id="f-advisor" maxlength="120" placeholder="Dr. Jane Doe" />
+            </div>
+          </div>
+
+          <div class="row2">
+            <div class="field">
+              <label for="f-billing">Billing index</label>
+              <input class="input" id="f-billing" maxlength="40" placeholder="123456" />
+              <div class="hint">Ask your business manager if you're not sure.</div>
+            </div>
+            <div class="field">
+              <label for="f-needed">Needed by</label>
+              <input class="input" id="f-needed" type="date" />
+            </div>
+          </div>
+
+          <div class="field">
+            <label class="req" for="f-printer">Print and pick up at</label>
+            <select class="select" id="f-printer"></select>
+            <div class="hint" id="printer-hint"></div>
+          </div>
+
+          <div class="field">
+            <label class="req">Paper width</label>
+            <div class="radio-row" id="rolls"></div>
+            <div class="hint">The short side of your poster runs across the roll; the long side feeds out.</div>
+          </div>
+
+          <div class="field">
+            <label class="req">Poster file</label>
+            <div class="drop" id="drop">
+              <input type="file" id="file" accept=".pdf,.pptx,.ppt,.odp,.png,.jpg,.jpeg,.tif,.tiff,.html" />
+              <span class="icon">📄</span>
+              <div class="lede">Drop your file here, or click to browse</div>
+              <div class="sub" id="accepts">PDF, PowerPoint, PNG, JPEG or HTML</div>
+            </div>
+            <div id="filechip"></div>
+            <div class="verdict" id="verdict"></div>
+            <div id="ackwrap"></div>
+          </div>
+
+          <div class="field">
+            <label for="f-notes">Anything we should know?</label>
+            <textarea class="textarea" id="f-notes" maxlength="2000"
+              placeholder="Conference name, deadline, special instructions…"></textarea>
+          </div>
+
+          <button class="btn" id="submit" disabled onclick="submitJob()">Send for approval</button>
+          <button class="btn ghost" id="startover" style="display:none" onclick="startOver()">Start a new poster</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- right: the preview -->
+    <div>
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">How it will come out</div>
+          <span class="eyebrow" id="stage-note">Canon PRO-4100</span>
+        </div>
+        <div class="card-body">
+          <div class="stage">
+            <svg viewBox="0 0 480 340" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <rect width="480" height="340" fill="#2A2A2E"/>
+              <rect x="0" y="310" width="480" height="30" fill="#1A1A1E"/>
+              <line x1="0" y1="312" x2="480" y2="312" stroke="#3A3A40" stroke-width="1"/>
+              <rect x="60" y="140" width="360" height="170" rx="6" fill="#3C3C44"/>
+              <rect x="60" y="115" width="360" height="40" rx="6" fill="#45454F"/>
+              <rect x="130" y="127" width="220" height="12" rx="3" fill="#1C1C22"/>
+              <rect x="360" y="148" width="50" height="60" rx="4" fill="#38383F"/>
+              <circle cx="380" cy="162" r="5" fill="#EEB111"/>
+              <circle cx="395" cy="162" r="5" fill="#4A9B6F"/>
+              <rect x="370" y="172" width="30" height="4" rx="2" fill="#555"/>
+              <rect x="370" y="180" width="22" height="4" rx="2" fill="#555"/>
+              <rect x="370" y="188" width="26" height="4" rx="2" fill="#555"/>
+              <rect x="70" y="150" width="80" height="45" rx="4" fill="#1A1A22"/>
+              <text id="lcd1" x="110" y="170" fill="#4CAF50" font-size="7" font-family="monospace" text-anchor="middle">READY</text>
+              <text id="lcd2" x="110" y="181" fill="#888" font-size="5.5" font-family="monospace" text-anchor="middle">—</text>
+              <text id="lcd3" x="110" y="190" fill="#888" font-size="5.5" font-family="monospace" text-anchor="middle">—</text>
+              <line x1="70" y1="220" x2="110" y2="220" stroke="#2A2A30" stroke-width="2"/>
+              <line x1="70" y1="226" x2="110" y2="226" stroke="#2A2A30" stroke-width="2"/>
+              <line x1="70" y1="232" x2="110" y2="232" stroke="#2A2A30" stroke-width="2"/>
+              <rect x="90" y="306" width="20" height="10" rx="2" fill="#2C2C34"/>
+              <rect x="370" y="306" width="20" height="10" rx="2" fill="#2C2C34"/>
+              <rect x="90" y="296" width="300" height="14" rx="3" fill="#35353D"/>
+              <text x="230" y="285" fill="#EEB111" font-size="9" font-family="sans-serif"
+                text-anchor="middle" font-weight="bold" letter-spacing="3">KSU IT</text>
+              <ellipse cx="240" cy="316" rx="200" ry="6" fill="rgba(0,0,0,0.4)"/>
+            </svg>
+            <div class="paper" id="paper"><div class="ph">Your poster appears here once you upload it</div></div>
+            <div class="badge" id="badge" style="display:none">—</div>
+            <div class="feedhint">top edge prints first</div>
+          </div>
+
+          <div class="meta">
+            <div><div class="k">Finished size</div><div class="v dim" id="m-size">—</div></div>
+            <div><div class="k">Resolution</div><div class="v dim" id="m-dpi">—</div></div>
+            <div><div class="k">Orientation</div><div class="v dim" id="m-orient">—</div></div>
+            <div><div class="k">Paper used</div><div class="v dim" id="m-len">—</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">Your jobs</div>
+          <button class="linkbtn" style="color:var(--slate)" onclick="loadJobs()">Refresh</button>
+        </div>
+        <div class="tabs" id="tabs"></div>
+        <div id="joblist"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toasts"></div>
+
+<script src="%%BASE_PATH%%/socket.io/socket.io.js"></script>
+<script>
+'use strict';
+
+// ─── state ────────────────────────────────────────────────────────
+const S = {
+  user: null, options: null, jobId: null, job: null, preflight: null,
+  localUrl: null, file: null, rollWidth: null, printerCode: null,
+  jobs: [], tab: 'active', acknowledged: false, socket: null, uploading: false,
+};
+
+const $ = (id) => document.getElementById(id);
+const fmtBytes = (b) => b > 1048576 ? (b/1048576).toFixed(1)+' MB' : Math.round(b/1024)+' KB';
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
+  ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+function toast(msg, kind = '') {
+  const t = document.createElement('div');
+  t.className = 'toast ' + kind;
+  t.textContent = msg;
+  $('toasts').appendChild(t);
+  setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 250); }, 4200);
+}
+
+async function api(path, opts = {}) {
+  const res = await fetch(window.__BASE__ + path, {
+    credentials: 'same-origin',
+    headers: opts.body && !(opts.body instanceof FormData)
+      ? { 'Content-Type': 'application/json' } : {},
+    ...opts,
+  });
+  if (res.status === 401) { showGate('Your session expired. Sign in again.'); throw new Error('unauthorized'); }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok && res.status !== 202) throw Object.assign(new Error(data.message || data.error || 'Request failed'), { data, status: res.status });
+  return data;
+}
+
+// ─── boot ─────────────────────────────────────────────────────────
+const SIGNIN_MESSAGES = {
+  wrong_domain: 'That was a personal Google account. Sign in again with your @kent.edu account.',
+  expired: 'That sign-in took too long. Try again.',
+  cancelled: 'Sign-in was cancelled.',
+  token_failed: "Google couldn't complete the sign-in. Try again.",
+  invalid_token: "We couldn't verify that sign-in. Try again.",
+  unverified_email: 'That Google account has no verified email address.',
+  account_disabled: 'That account has been turned off. Contact the help desk.',
+  signed_out: null,
+};
+
+(async function boot() {
+  const params = new URLSearchParams(location.search);
+  const signin = params.get('signin');
+  if (signin && SIGNIN_MESSAGES[signin]) {
+    const el = $('gate-error');
+    el.style.display = 'block';
+    el.textContent = SIGNIN_MESSAGES[signin] +
+      (params.get('tried') ? ` (tried ${params.get('tried')})` : '');
+  }
+  if (signin) history.replaceState({}, '', location.pathname);
+
+  try {
+    S.user = await api('/auth/me');
+  } catch { showGate(); return; }
+
+  $('gate').style.display = 'none';
+  $('who').textContent = S.user.name;
+  $('avatar').textContent = (S.user.name || '?').split(' ').map(w => w[0]).join('').slice(0,2).toUpperCase();
+  if (S.user.picture) $('avatar').innerHTML = `<img src="${esc(S.user.picture)}" alt="">`;
+  if (['approver','operator','admin'].includes(S.user.role)) $('adminlink').style.display = '';
+
+  S.options = await api('/api/jobs/options');
+  renderOptions();
+  connectSocket();
+  await loadJobs();
+})();
+
+function showGate(msg) {
+  $('gate').style.display = 'grid';
+  if (msg) { $('gate-error').style.display = 'block'; $('gate-error').textContent = msg; }
+}
+
+// ─── options ──────────────────────────────────────────────────────
+function renderOptions() {
+  const o = S.options;
+  if (o.banner) { $('banner').style.display = ''; $('banner').textContent = o.banner; }
+  if (!o.acceptingJobs) {
+    $('banner').style.display = '';
+    $('banner').textContent = 'Submissions are paused right now. You can still browse your past jobs.';
+    $('submit').disabled = true;
+  }
+  $('accepts').textContent =
+    `PDF, PowerPoint, PNG, JPEG or HTML — up to ${o.limits.maxUploadMb} MB`;
+
+  const sel = $('f-printer');
+  sel.innerHTML = o.printers.map(p =>
+    `<option value="${esc(p.code)}" data-roll="${p.roll_width_in}">` +
+    `${esc(p.display_name)} — pick up at ${esc(p.location_name)}</option>`).join('');
+  sel.onchange = onPrinterChange;
+
+  $('rolls').innerHTML = o.rollWidths.map(w =>
+    `<button type="button" class="radio-card" data-roll="${w}" onclick="pickRoll(${w})">
+       <div class="big">${w}"</div><div class="small">roll width</div></button>`).join('');
+
+  if (o.printers.length) { sel.value = o.printers[0].code; onPrinterChange(); }
+  renderTabs();
+}
+
+function onPrinterChange() {
+  const code = $('f-printer').value;
+  S.printerCode = code;
+  const p = S.options.printers.find(x => x.code === code);
+  if (!p) return;
+  pickRoll(p.roll_width_in, true);
+  $('printer-hint').textContent =
+    `${p.building || p.location_name}${p.room ? ' ' + p.room : ''} · ${p.pickup_hours || 'hours posted at the door'}` +
+    (p.queued_jobs ? ` · ${p.queued_jobs} job${p.queued_jobs > 1 ? 's' : ''} ahead of you` : ' · no queue right now');
+  $('stage-note').textContent = p.display_name.replace(/^.*— /, '');
+  $('lcd2').textContent = `${p.roll_width_in}" ROLL LOADED`;
+  $('lcd3').textContent = (p.device_state || 'unknown').toUpperCase();
+  if (S.jobId) patchJob({ printerCode: code });
+}
+
+function pickRoll(w, silent) {
+  S.rollWidth = w;
+  document.querySelectorAll('#rolls .radio-card').forEach(el =>
+    el.classList.toggle('on', Number(el.dataset.roll) === w));
+  if (!silent && S.jobId) patchJob({ rollWidthIn: w });
+}
+
+// ─── file handling ────────────────────────────────────────────────
+const drop = $('drop');
+['dragenter','dragover'].forEach(e => drop.addEventListener(e, ev => {
+  ev.preventDefault(); drop.classList.add('hot');
+}));
+['dragleave','drop'].forEach(e => drop.addEventListener(e, ev => {
+  ev.preventDefault(); drop.classList.remove('hot');
+}));
+drop.addEventListener('drop', ev => {
+  const f = ev.dataTransfer.files[0];
+  if (f) handleFile(f);
+});
+$('file').addEventListener('change', ev => { if (ev.target.files[0]) handleFile(ev.target.files[0]); });
+
+async function handleFile(file) {
+  if (S.uploading) return;
+  S.file = file;
+
+  // Show it immediately from browser memory. No server round trip, no second
+  // copy — the object URL points straight at the file the user just dropped.
+  showLocalPreview(file);
+  renderFileChip(file);
+  setVerdict('busy', 'Checking your file…', []);
+
+  try {
+    S.uploading = true;
+    if (!S.jobId) {
+      const created = await api('/api/jobs', {
+        method: 'POST',
+        body: JSON.stringify({
+          rollWidthIn: S.rollWidth,
+          title: $('f-title').value.trim() || file.name.replace(/\.[^.]+$/, ''),
+        }),
+      });
+      S.jobId = created.id;
+      S.socket?.emit('watch:job', S.jobId);
+      await patchJob({ printerCode: S.printerCode });
+    }
+
+    const fd = new FormData();
+    fd.append('file', file);
+    const res = await api(`/api/jobs/${S.jobId}/file`, { method: 'POST', body: fd });
+    S.job = res.job;
+    S.preflight = res.preflight;
+    renderVerdict(res.preflight);
+    renderMeta(res.preflight);
+    shapePaper(res.preflight.layout);
+    validate();
+    if (res.deduped) toast('We already had this exact file — reused it', 'ok');
+  } catch (err) {
+    setVerdict('fail', "That file couldn't be checked", [{
+      message: err.message || 'Try uploading it again.', fix: null,
+    }]);
+    validate();
+  } finally {
+    S.uploading = false;
+  }
+}
+
+function showLocalPreview(file) {
+  if (S.localUrl) URL.revokeObjectURL(S.localUrl);
+  S.localUrl = URL.createObjectURL(file);
+  const paper = $('paper');
+  const ext = file.name.split('.').pop().toLowerCase();
+
+  if (['png','jpg','jpeg','webp'].includes(ext)) {
+    paper.innerHTML = `<img src="${S.localUrl}" alt="Your poster">`;
+    const img = paper.querySelector('img');
+    img.onload = () => shapePaper({
+      finishedWidthIn: img.naturalWidth, finishedHeightIn: img.naturalHeight,
+    });
+  } else if (ext === 'pdf') {
+    // Browsers render PDFs natively — first page shows instantly, locally.
+    paper.innerHTML = `<embed src="${S.localUrl}#toolbar=0&navpanes=0&view=FitH" type="application/pdf">`;
+  } else {
+    paper.innerHTML = `<div class="ph"><span class="spin"></span><br>Building a preview of your ${
+      ext === 'html' ? 'page' : 'slide'}…</div>`;
+  }
+}
+
+function renderFileChip(file) {
+  $('filechip').innerHTML = `<div class="filechip">
+    <span>📎</span>
+    <span class="name">${esc(file.name)}</span>
+    <span class="size">${fmtBytes(file.size)}</span>
+    <button onclick="clearFile()" title="Remove">✕</button></div>`;
+}
+
+function clearFile() {
+  S.file = null; S.preflight = null;
+  if (S.localUrl) { URL.revokeObjectURL(S.localUrl); S.localUrl = null; }
+  $('file').value = '';
+  $('filechip').innerHTML = '';
+  $('verdict').className = 'verdict';
+  $('ackwrap').innerHTML = '';
+  $('paper').innerHTML = '<div class="ph">Your poster appears here once you upload it</div>';
+  $('paper').style.width = ''; $('paper').style.height = '';
+  $('badge').style.display = 'none';
+  ['m-size','m-dpi','m-orient','m-len'].forEach(id => {
+    $(id).textContent = '—'; $(id).className = 'v dim';
+  });
+  validate();
+}
+
+// ─── verdict + meta ───────────────────────────────────────────────
+function setVerdict(kind, heading, issues) {
+  const el = $('verdict');
+  el.className = `verdict show ${kind}`;
+  el.innerHTML = `<h4>${kind === 'busy' ? '<span class="spin"></span>' : ''}${esc(heading)}</h4>` +
+    (issues.length ? `<ul>${issues.map(i =>
+      `<li>${esc(i.message)}${i.fix ? `<span class="fix">${esc(i.fix)}</span>` : ''}</li>`).join('')}</ul>` : '');
+}
+
+function renderVerdict(r) {
+  const fails = r.issues.filter(i => i.severity === 'fail');
+  const warns = r.issues.filter(i => i.severity === 'warn');
+  $('ackwrap').innerHTML = '';
+  S.acknowledged = false;
+
+  if (r.severity === 'fail') {
+    setVerdict('fail', "This file can't be printed as-is", fails);
+  } else if (r.severity === 'warn') {
+    setVerdict('warn', 'It will print, with one thing to know', warns);
+    $('ackwrap').innerHTML = `<label class="ack">
+      <input type="checkbox" onchange="S.acknowledged=this.checked;validate()">
+      <span>I've read the warning and want to print it anyway.</span></label>`;
+  } else {
+    setVerdict('pass', 'Looks good — ready to send', [{
+      message: `${r.layout.finishedWidthIn}" × ${r.layout.finishedHeightIn}" at ` +
+               `${r.raster.effectiveDpi} DPI on the ${r.layout.rollWidthIn}" roll.`,
+    }]);
+  }
+}
+
+function renderMeta(r) {
+  const L = r.layout, R = r.raster;
+  $('m-size').textContent = `${L.finishedWidthIn}" × ${L.finishedHeightIn}"`;
+  $('m-size').className = 'v';
+  const dpi = R.effectiveDpi;
+  $('m-dpi').textContent = `${dpi} DPI`;
+  $('m-dpi').className = 'v ' + (dpi < S.options.limits.minDpi ? 'bad'
+    : dpi < S.options.limits.warnDpi ? 'warn' : 'good');
+  $('m-orient').textContent = L.orientation === 'landscape' ? 'Landscape' : 'Portrait';
+  $('m-orient').className = 'v';
+  $('m-len').textContent = `${L.printLengthIn}"`;
+  $('m-len').className = 'v';
+}
+
+/**
+ * Size the paper element to the poster's aspect ratio, anchored at the feed
+ * slot. The slot is 220 units wide in a 480-unit SVG, so a poster wider than
+ * the roll can't visually exceed it — which is exactly the point: people see
+ * a long narrow strip and realise their slide is still 16:9.
+ */
+function shapePaper(layout) {
+  const paper = $('paper');
+  const ratio = layout.finishedWidthIn / layout.finishedHeightIn;
+  const slotPct = 45.8;                       // 220/480
+  const maxHeightPct = 52;                    // keep it above the printer legs
+  let wPct = slotPct;
+  let hPct = (wPct / ratio) * (480 / 340);    // convert to the stage's aspect
+  if (hPct > maxHeightPct) { hPct = maxHeightPct; wPct = hPct * ratio * (340 / 480); }
+  paper.style.width = wPct + '%';
+  paper.style.height = hPct + '%';
+
+  const badge = $('badge');
+  badge.style.display = '';
+  badge.textContent = ratio >= 1 ? 'Landscape' : 'Portrait';
+}
+
+// ─── form ─────────────────────────────────────────────────────────
+let patchTimer = null;
+function queuePatch() {
+  clearTimeout(patchTimer);
+  patchTimer = setTimeout(() => {
+    if (!S.jobId) return;
+    patchJob({
+      title: $('f-title').value.trim(),
+      department: $('f-dept').value.trim(),
+      advisor: $('f-advisor').value.trim(),
+      billingIndex: $('f-billing').value.trim(),
+      neededBy: $('f-needed').value,
+      notes: $('f-notes').value.trim(),
+    });
+  }, 700);
+}
+['f-title','f-dept','f-advisor','f-billing','f-needed','f-notes']
+  .forEach(id => $(id).addEventListener('input', () => { queuePatch(); validate(); }));
+
+async function patchJob(patch) {
+  if (!S.jobId) return null;
+  try {
+    const res = await api(`/api/jobs/${S.jobId}`, {
+      method: 'PATCH', body: JSON.stringify(patch),
+    });
+    S.job = res.job;
+    if (res.preflight) {
+      S.preflight = res.preflight;
+      renderVerdict(res.preflight);
+      renderMeta(res.preflight);
+      shapePaper(res.preflight.layout);
+    }
+    validate();
+    return res;
+  } catch (e) { console.warn('patch', e); return null; }
+}
+
+function validate() {
+  const ok = !!$('f-title').value.trim() && !!S.printerCode && !!S.preflight &&
+    S.preflight.severity !== 'fail' &&
+    (S.preflight.severity !== 'warn' || S.acknowledged) &&
+    !['pending_approval','approved','queued','printing','printed'].includes(S.job?.status);
+  const btn = $('submit');
+  btn.disabled = !ok || !S.options?.acceptingJobs;
+  btn.textContent = !S.preflight ? 'Upload a file to continue'
+    : S.preflight.severity === 'fail' ? 'Fix the problem above'
+    : !$('f-title').value.trim() ? 'Add a title to continue'
+    : (S.preflight.severity === 'warn' && !S.acknowledged) ? 'Confirm the warning to continue'
+    : 'Send for approval';
+}
+
+async function submitJob() {
+  const btn = $('submit');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spin"></span>Sending…';
+  try {
+    await patchJob({
+      title: $('f-title').value.trim(),
+      department: $('f-dept').value.trim(),
+      advisor: $('f-advisor').value.trim(),
+      billingIndex: $('f-billing').value.trim(),
+      neededBy: $('f-needed').value,
+      notes: $('f-notes').value.trim(),
+      overrideReason: S.acknowledged ? 'user acknowledged quality warning' : '',
+    });
+    const res = await api(`/api/jobs/${S.jobId}/submit`, {
+      method: 'POST', body: JSON.stringify({ acknowledge: S.acknowledged }),
+    });
+    S.job = res.job;
+    toast(`${S.jobId} sent for approval. We'll email you when it prints.`, 'ok');
+    btn.textContent = 'Sent for approval';
+    $('startover').style.display = '';
+    await loadJobs();
+  } catch (err) {
+    toast(err.message || 'Submission failed', 'bad');
+    btn.disabled = false;
+    validate();
+  }
+}
+
+function startOver() {
+  S.jobId = null; S.job = null;
+  clearFile();
+  ['f-title','f-dept','f-advisor','f-billing','f-needed','f-notes'].forEach(id => $(id).value = '');
+  $('startover').style.display = 'none';
+  $('submit').style.display = '';
+  validate();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// ─── jobs list ────────────────────────────────────────────────────
+const TABS = [
+  { key: 'active', label: 'In progress' },
+  { key: 'done', label: 'Finished' },
+  { key: 'all', label: 'All' },
+];
+const ACTIVE = ['draft','uploaded','ready','submitted','pending_approval','approved','queued','printing','expired','preflight_failed'];
+
+function renderTabs() {
+  $('tabs').innerHTML = TABS.map(t =>
+    `<button class="tab ${t.key === S.tab ? 'on' : ''}" onclick="S.tab='${t.key}';renderTabs();renderJobs()">${t.label}</button>`
+  ).join('');
+}
+
+async function loadJobs() {
+  try { S.jobs = (await api('/api/jobs')).jobs; renderJobs(); }
+  catch (e) { console.warn(e); }
+}
+
+const STATUS_TEXT = {
+  draft: 'Not submitted', uploaded: 'Checking', ready: 'Ready to send',
+  preflight_failed: 'Needs a better file', submitted: 'Submitted',
+  pending_approval: 'Waiting for approval', approved: 'Approved',
+  rejected: 'Not approved', queued: 'In the print queue', printing: 'Printing now',
+  printed: 'Ready for pickup', picked_up: 'Picked up', failed: 'Something went wrong',
+  cancelled: 'Cancelled', expired: 'Waiting on our team',
+};
+
+// A job you can still pick up and finish. Matches the PATCH route's own
+// guard in routes/jobs.js — if that list changes, change this one too.
+const RESUMABLE = ['draft', 'uploaded', 'preflight_failed', 'ready', 'rejected'];
+// The backend refuses to cancel only these three (routes/jobs.js), so the
+// button follows the same rule rather than inventing a stricter one.
+const UNCANCELLABLE = ['printed', 'picked_up', 'cancelled'];
+
+function renderJobs() {
+  const list = S.tab === 'all' ? S.jobs
+    : S.tab === 'active' ? S.jobs.filter(j => ACTIVE.includes(j.status))
+    : S.jobs.filter(j => ['printed','picked_up','rejected','cancelled','failed'].includes(j.status));
+
+  if (!list.length) {
+    $('joblist').innerHTML = `<div class="empty">${
+      S.tab === 'active' ? 'Nothing in progress. Upload a poster to get started.'
+        : 'Nothing here yet.'}</div>`;
+    return;
+  }
+  $('joblist').innerHTML = list.map(j => {
+    const resumable = RESUMABLE.includes(j.status);
+    const cancellable = !UNCANCELLABLE.includes(j.status);
+    return `
+    <div class="job${resumable ? ' resumable' : ''}"${
+      resumable ? ` onclick="resumeJob('${esc(j.id)}')" title="Click to pick this one back up"` : ''}>
+      ${j.files?.thumb ? `<img class="job-thumb" src="${esc(j.files.thumb.url)}" alt="">`
+        : '<div class="job-thumb"></div>'}
+      <div class="job-main">
+        <div class="job-title">${esc(j.title)}</div>
+        <div class="job-sub">${esc(j.id)} · ${j.finishedWidthIn ? `${j.finishedWidthIn}" × ${j.finishedHeightIn}"` : '—'}
+          ${j.location ? ' · ' + esc(j.location.display_name) : ''}
+          ${j.status === 'printed' && j.location?.pickup_hours ? ' · ' + esc(j.location.pickup_hours) : ''}
+          ${j.approval?.comments ? '<br>“' + esc(j.approval.comments) + '”' : ''}</div>
+      </div>
+      <div class="job-side">
+        <span class="pill ${j.status}">${STATUS_TEXT[j.status] || j.status}</span>
+        ${cancellable ? `<button class="job-x" title="Discard this poster"
+          onclick="event.stopPropagation();discardJob('${esc(j.id)}')">Discard</button>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+/**
+ * Pick an unfinished job back up. Someone drags a file in, gets distracted,
+ * and comes back later — without this the job sits in "In progress" forever
+ * with no way to reach it, because the row was never clickable.
+ */
+async function resumeJob(id) {
+  if (S.jobId === id) { window.scrollTo({ top: 0, behavior: 'smooth' }); return; }
+  if (S.jobId && S.jobId !== id && !confirm(
+    'Switch to this poster? Anything you have typed but not saved on the current one is kept — it autosaves.')) return;
+
+  try {
+    const { job } = await api(`/api/jobs/${id}`);
+    S.jobId = job.id; S.job = job; S.preflight = job.preflight || null;
+    S.acknowledged = false;
+
+    // The local blob preview belongs to the previous file; drop it before
+    // pointing the stage at the server's render.
+    if (S.localUrl) { URL.revokeObjectURL(S.localUrl); S.localUrl = null; }
+    S.file = null;
+    $('file').value = '';
+
+    $('f-title').value = job.title || '';
+    $('f-dept').value = job.department || '';
+    $('f-advisor').value = job.advisor || '';
+    $('f-billing').value = job.billingIndex || '';
+    $('f-needed').value = job.neededBy || '';
+    $('f-notes').value = job.notes || '';
+
+    if (job.printer?.code) {
+      $('f-printer').value = job.printer.code;
+      onPrinterChange();
+    }
+    if (job.rollWidthIn) pickRoll(job.rollWidthIn, true);
+
+    // Reuse the same chip the upload path renders, so a resumed job looks
+    // identical to a fresh one. The stored file has no `size` on the client,
+    // so fall back to the byte count the API returned.
+    if (job.files?.original) {
+      renderFileChip({
+        name: job.files.original.name || 'your file',
+        size: job.files.original.bytes || 0,
+      });
+    } else {
+      $('filechip').innerHTML = '';
+    }
+
+    if (job.files?.preview) {
+      $('paper').innerHTML = `<img src="${esc(job.files.preview.url)}?t=${Date.now()}" alt="Your poster">`;
+    } else {
+      $('paper').innerHTML = '<div class="ph">Preview still building…</div>';
+    }
+
+    if (S.preflight) {
+      renderVerdict(S.preflight);
+      renderMeta(S.preflight);
+      shapePaper(S.preflight.layout);
+    }
+
+    $('submit').style.display = '';
+    $('submit').disabled = false;
+    $('submit').textContent = 'Send for approval';
+    $('startover').style.display = '';
+    S.socket?.emit('watch:job', S.jobId);
+    validate();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    toast(`Picked ${id} back up`, 'ok');
+  } catch (err) {
+    toast(err.message || "Couldn't open that poster", 'bad');
+  }
+}
+
+/** Abandon a job. The row stays visible under Finished, marked Cancelled. */
+async function discardJob(id) {
+  if (!confirm(`Discard ${id}? This can't be undone.`)) return;
+  try {
+    await api(`/api/jobs/${id}/cancel`, {
+      method: 'POST', body: JSON.stringify({ reason: 'discarded by requester' }),
+    });
+    // If it was the one loaded in the form, clear the form out too, or the
+    // page would still be offering to submit something now cancelled.
+    if (S.jobId === id) startOver();
+    await loadJobs();
+    toast(`${id} discarded`, 'ok');
+  } catch (err) {
+    toast(err.message || "Couldn't discard that one", 'bad');
+  }
+}
+
+// ─── live updates ─────────────────────────────────────────────────
+function connectSocket() {
+  S.socket = io({ path: window.__BASE__ + '/socket.io', withCredentials: true });
+
+  S.socket.on('connect', () => { if (S.jobId) S.socket.emit('watch:job', S.jobId); });
+
+  S.socket.on('preview:ready', (d) => {
+    if (d.jobId !== S.jobId) return;
+    // Swap the "converting" placeholder for the server's render. Images and
+    // PDFs already showed locally, so this only visibly changes for slides.
+    const paper = $('paper');
+    if (!paper.querySelector('img[src^="blob:"]')) {
+      paper.innerHTML = `<img src="${esc(d.url)}?t=${Date.now()}" alt="Your poster">`;
+    }
+    loadJobs();
+  });
+
+  S.socket.on('render:error', (d) => {
+    if (d.jobId !== S.jobId) return;
+    if (d.kind === 'preview') {
+      $('paper').innerHTML = '<div class="ph">Preview didn\'t build.<br>The file will still print if the check above passed.</div>';
+    }
+  });
+
+  S.socket.on('job:status', (d) => {
+    const mine = S.jobs.find(j => j.id === d.jobId);
+    if (!mine && d.jobId !== S.jobId) return;
+    const label = STATUS_TEXT[d.status] || d.status;
+    if (d.status === 'printed') toast(`${d.jobId} is printed and ready for pickup`, 'ok');
+    else if (d.status === 'rejected') toast(`${d.jobId} wasn't approved${d.comments ? ': ' + d.comments : ''}`, 'bad');
+    else if (d.status === 'printing') toast(`${d.jobId} is printing now`);
+    else if (d.status === 'queued') toast(`${d.jobId} is in the print queue`);
+    else if (d.status === 'approved') toast(`${d.jobId} was approved`, 'ok');
+    loadJobs();
+  });
+
+  S.socket.on('job:spooler', (d) => {
+    if (d.status === 'printing') { $('lcd1').textContent = 'PRINTING'; $('lcd1').setAttribute('fill', '#EEB111'); }
+    if (d.status === 'completed') { $('lcd1').textContent = 'READY'; $('lcd1').setAttribute('fill', '#4CAF50'); }
+  });
+
+  S.socket.on('printer:status', (d) => {
+    if (!S.printerCode || d.printer !== S.printerCode) return;
+    $('lcd3').textContent = String(d.state || '').toUpperCase().slice(0, 14);
+  });
+
+  S.socket.on('connect_error', () => {/* the page still works without live updates */});
+}
+
+window.addEventListener('beforeunload', () => { if (S.localUrl) URL.revokeObjectURL(S.localUrl); });
+</script>
+</body>
+</html>

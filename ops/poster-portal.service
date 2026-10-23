@@ -1,0 +1,50 @@
+# =====================================================================
+#  /etc/systemd/system/poster-portal.service
+#  systemctl daemon-reload && systemctl enable --now poster-portal
+# =====================================================================
+
+[Unit]
+Description=Poster Portal — large-format print submission and approval
+Documentation=file:///opt/poster-portal/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=posterportal
+Group=posterportal
+WorkingDirectory=/opt/poster-portal/webapp
+EnvironmentFile=/opt/poster-portal/webapp/.env
+ExecStart=/usr/bin/node src/server.js
+
+# The app checkpoints WAL and finishes in-flight renders on SIGTERM.
+# Give it room: a LibreOffice conversion can be mid-flight.
+KillSignal=SIGTERM
+TimeoutStopSec=90
+Restart=always
+RestartSec=5
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=poster-portal
+
+# --- hardening -------------------------------------------------------
+NoNewPrivileges=true
+PrivateTmp=false          # LibreOffice and Chromium need a real, shared /tmp
+                          # for their profile dirs; PrivateTmp breaks soffice
+                          # in ways that only show up under concurrency.
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/lib/poster-portal
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+# --- limits ----------------------------------------------------------
+# sharp/libvips memory-map large rasters; a 151 MP decode wants headroom.
+LimitNOFILE=65536
+MemoryMax=6G
+
+[Install]
+WantedBy=multi-user.target
