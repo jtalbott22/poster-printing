@@ -125,6 +125,12 @@ sudo ln -s ../sites-available/posters.kent.edu /etc/nginx/sites-enabled/
 sudo nginx -t && sudo systemctl reload nginx
 ```
 
+**Sharing a host under a path** (e.g. `https://adstare.kent.edu/static/posters/`)
+instead of owning a hostname: set `PUBLIC_URL` to the full URL including the
+path, register `<PUBLIC_URL>/auth/google/callback` as the Google redirect URI,
+and use `ops/nginx-posters-subpath.conf` in the existing vhost instead of
+`nginx-posters.conf`.
+
 ---
 
 ## 3. The conversion toolchain

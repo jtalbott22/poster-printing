@@ -177,7 +177,7 @@ function toast(m, k = '') {
 async function api(p, o = {}) {
   const r = await fetch(window.__BASE__ + p, { credentials: 'same-origin',
     headers: o.body ? { 'Content-Type': 'application/json' } : {}, ...o });
-  if (r.status === 401) { location.href = '/'; throw new Error('unauth'); }
+  if (r.status === 401) { location.href = window.__BASE__ + '/'; throw new Error('unauth'); }
   const d = await r.json().catch(() => ({}));
   if (!r.ok && r.status !== 202) throw new Error(d.message || d.error || 'failed');
   return d;
@@ -409,7 +409,7 @@ async function refresh() {
 
 (async function () {
   const me = await api('/auth/me').catch(() => null);
-  if (!me) { location.href = '/'; return; }
+  if (!me) { location.href = window.__BASE__ + '/'; return; }
   $('who').textContent = `${me.name} · ${me.role}`;
   await refresh(); await loadSupplies(); await loadHealth();
 
@@ -427,7 +427,8 @@ async function refresh() {
   setInterval(loadHealth, 60000);
 
   // Deep link from the Teams approval card: /admin/job/PP-2026-0413
-  const m = /^\/admin\/job\/([A-Za-z0-9-]+)/.exec(location.pathname);
+  // (location.pathname still carries the base path, so strip it first)
+  const m = /^\/admin\/job\/([A-Za-z0-9-]+)/.exec(location.pathname.slice(window.__BASE__.length));
   if (m) open_(m[1]).catch(() => toast('Job not found', 'bad'));
 })();
 </script>
